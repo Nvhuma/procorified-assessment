@@ -25,6 +25,9 @@ CREATE DATABASE procurifieddb;
 
 ```bash
 npm install
+
+# PowerShell execution-policy fallback:
+npm.cmd ci
 ```
 
 ### Configure database credentials
