@@ -44,7 +44,7 @@ function normalizeNumericString(value) {
   // Normalize DB NUMERIC text for stable string equality assertions in tests.
   const raw = String(value).trim();
   if (!/^-?\d+(?:\.\d+)?$/.test(raw)) {
-    throw new Error(`Expected a decimal string, got "${raw}"`);
+    return raw;
   }
 
   const normalized = raw.includes('.')
@@ -185,6 +185,11 @@ async function runIntegrationTests() {
   async function assertAsync(description, fn) {
     try {
       await reseedDatabase();
+    } catch (err) {
+      throw new Error(`Integration test setup failed before "${description}": ${err.message}`);
+    }
+
+    try {
       await fn();
       console.log(`  PASS ${description}`);
       passed++;
@@ -286,6 +291,31 @@ async function runIntegrationTests() {
       [calculationId]
     );
     assertEqual(normalizeNumericString(persistedResult.rows[0].calculated_value), '123456789012.123457');
+  });
+
+  await assertAsync('returns value rounded to NUMERIC(18,6) scale when needed', async () => {
+    await pool.query(
+      `INSERT INTO variables (id, name, value)
+       VALUES (201, 'needsRounding', 1.123456)
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, value = EXCLUDED.value`
+    );
+
+    const insertResult = await pool.query(
+      `INSERT INTO calculations (name, expression, calculated_value)
+       VALUES ($1, $2, NULL)
+       RETURNING id`,
+      ['Calc Needs Rounding', '{ "id": 201, "name": "needsRounding" } + 0.0000007']
+    );
+
+    const calculationId = insertResult.rows[0].id;
+    const { calculatedValue } = await evaluateCalculation(calculationId);
+    assertEqual(calculatedValue, '1.123457');
+
+    const persistedResult = await pool.query(
+      'SELECT calculated_value FROM calculations WHERE id = $1',
+      [calculationId]
+    );
+    assertEqual(normalizeNumericString(persistedResult.rows[0].calculated_value), '1.123457');
   });
 
   console.log('\n  recalculate');

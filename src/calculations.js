@@ -5,7 +5,7 @@
 
 const { create, all } = require('mathjs');
 const pool = require('./db');
-const { logInfo, logError } = require('./logger');
+const { logDebug, logInfo, logError } = require('./logger');
 
 const math = create(all, {
   number: 'BigNumber',
@@ -80,7 +80,7 @@ function toBigNumberString(value, label) {
  * Replace all JSON snippets in an expression with concrete numeric values.
  *
  * @param {string} expression
- * @param {Record<number, string>} valueById
+ * @param {Record<number, number | string>} valueById
  * @returns {string}
  */
 function buildEvaluableExpression(expression, valueById) {
@@ -92,6 +92,8 @@ function buildEvaluableExpression(expression, valueById) {
 
     const variableValue = valueById[variableId];
     const normalizedValue = toBigNumberString(variableValue, `Variable with id ${variableId}`);
+
+    logDebug('calculation.expression.variable_substitute', { variableId });
 
     // Parenthesize substituted values to preserve intended arithmetic semantics.
     return `(${normalizedValue})`;
@@ -180,19 +182,14 @@ function evaluateExpression(expression) {
 }
 
 /**
- * Load one calculation, resolve all referenced variables, evaluate, and persist.
+ * Internal helper used to evaluate a calculation against any queryable
+ * interface (pool or transaction client).
  *
  * @param {number} calculationId
- * @param {{ client?: { query: Function } }} [options]
+ * @param {{ query: Function }} queryable
  * @returns {Promise<{ calculationId: number, calculatedValue: string }>}
  */
-async function evaluateCalculation(calculationId, options = {}) {
-  if (!Number.isInteger(calculationId) || calculationId <= 0) {
-    throw new TypeError(`calculationId must be a positive integer, received: ${calculationId}`);
-  }
-
-  const queryable = options.client || pool;
-
+async function _evaluateCalculationWithQueryable(calculationId, queryable) {
   try {
     logInfo('calculation.evaluate.start', { calculationId });
 
@@ -230,13 +227,26 @@ async function evaluateCalculation(calculationId, options = {}) {
     const evaluableExpression = buildEvaluableExpression(calculation.expression, valueById);
     const calculatedValue = evaluateExpression(evaluableExpression);
 
-    await queryable.query(
-      'UPDATE calculations SET calculated_value = $1 WHERE id = $2',
+    const updateResult = await queryable.query(
+      'UPDATE calculations SET calculated_value = $1 WHERE id = $2 RETURNING calculated_value',
       [calculatedValue, calculationId]
     );
 
-    logInfo('calculation.evaluate.success', { calculationId, calculatedValue });
-    return { calculationId, calculatedValue };
+    if (updateResult.rows.length === 0) {
+      throw new Error(`Calculation with id ${calculationId} disappeared during update`);
+    }
+
+    // Return the DB value so the function output always matches persisted NUMERIC rounding.
+    const persistedCalculatedValue = toBigNumberString(
+      updateResult.rows[0].calculated_value,
+      'Persisted calculation result'
+    );
+
+    logInfo('calculation.evaluate.success', {
+      calculationId,
+      calculatedValue: persistedCalculatedValue,
+    });
+    return { calculationId, calculatedValue: persistedCalculatedValue };
   } catch (err) {
     logError('calculation.evaluate.failed', {
       calculationId,
@@ -244,6 +254,20 @@ async function evaluateCalculation(calculationId, options = {}) {
     });
     throw err;
   }
+}
+
+/**
+ * Load one calculation, resolve all referenced variables, evaluate, and persist.
+ *
+ * @param {number} calculationId
+ * @returns {Promise<{ calculationId: number, calculatedValue: string }>}
+ */
+async function evaluateCalculation(calculationId) {
+  if (!Number.isInteger(calculationId) || calculationId <= 0) {
+    throw new TypeError(`calculationId must be a positive integer, received: ${calculationId}`);
+  }
+
+  return _evaluateCalculationWithQueryable(calculationId, pool);
 }
 
 /**
@@ -278,7 +302,7 @@ async function _recalculateAtomic(variableId, dependencyRegex) {
 
     const results = [];
     for (const row of affectedCalculations) {
-      results.push(await evaluateCalculation(row.id, { client }));
+      results.push(await _evaluateCalculationWithQueryable(row.id, client));
     }
 
     await client.query('COMMIT');
