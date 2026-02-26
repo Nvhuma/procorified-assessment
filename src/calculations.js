@@ -53,6 +53,18 @@ function parseSnippetVariableId(snippetText) {
     throw new Error(`JSON snippet must contain a positive integer "id" field: ${snippetText}`);
   }
 
+  // Reject scientific notation like {"id":1e2}. The dependency scanner in
+  // recalculate() searches for literal integer text in the expression column.
+  // If the stored text says "1e2" but JSON.parse returns 100, then
+  // recalculate(100) would silently skip this expression because the regex
+  // looks for "100" and never finds it.
+  const rawIdMatch = snippetText.match(/"id"\s*:\s*([^\s,}]+)/);
+  if (rawIdMatch && !/^\d+$/.test(rawIdMatch[1])) {
+    throw new Error(
+      `JSON snippet "id" must be a plain integer, not scientific notation: ${snippetText}`
+    );
+  }
+
   return snippet.id;
 }
 

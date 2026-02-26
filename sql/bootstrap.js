@@ -32,9 +32,8 @@ async function resetDatabase(client) {
     );
   `);
 
-  // Tables are recreated with correct types above. The TRUNCATE resets all
-  // data and sequences so every test run starts from a known deterministic state.
-  await client.query('TRUNCATE singleresource, variables, calculations RESTART IDENTITY CASCADE;');
+  // Tables are dropped and recreated above, so sequences and types are always
+  // correct. No TRUNCATE needed - the DROP guarantees a clean state.
 
   await client.query(`
     INSERT INTO singleresource (id, name, "parentId") VALUES

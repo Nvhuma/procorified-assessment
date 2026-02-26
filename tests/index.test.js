@@ -3,7 +3,7 @@
  *
  * Lightweight test runner with:
  * - Unit tests (no DB)
- * - Integration tests (requires seeded PostgreSQL)
+ * - Integration tests (requires a running PostgreSQL instance - tests seed themselves)
  */
 
 // Suppress expected error logs from negative-path unit tests.
