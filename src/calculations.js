@@ -216,10 +216,7 @@ async function evaluateCalculation(calculationId, options = {}) {
 
     const valueById = {};
     for (const variable of variableResult.rows) {
-      valueById[variable.id] = toBigNumberString(
-        variable.value,
-        `Variable with id ${variable.id}`
-      );
+      valueById[variable.id] = variable.value;
     }
 
     for (const variableId of referencedVariableIds) {
