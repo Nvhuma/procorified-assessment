@@ -4,8 +4,11 @@
  */
 
 async function resetDatabase(client) {
+  // Recreate schema from scratch so type definitions cannot drift between runs.
+  await client.query('DROP TABLE IF EXISTS calculations, variables, singleresource CASCADE;');
+
   await client.query(`
-    CREATE TABLE IF NOT EXISTS singleresource (
+    CREATE TABLE singleresource (
       id         SERIAL PRIMARY KEY,
       name       TEXT NOT NULL,
       "parentId" INTEGER REFERENCES singleresource(id)
@@ -13,7 +16,7 @@ async function resetDatabase(client) {
   `);
 
   await client.query(`
-    CREATE TABLE IF NOT EXISTS variables (
+    CREATE TABLE variables (
       id    SERIAL PRIMARY KEY,
       name  TEXT NOT NULL,
       value NUMERIC(18, 6) NOT NULL
@@ -21,7 +24,7 @@ async function resetDatabase(client) {
   `);
 
   await client.query(`
-    CREATE TABLE IF NOT EXISTS calculations (
+    CREATE TABLE calculations (
       id               SERIAL PRIMARY KEY,
       name             TEXT NOT NULL,
       expression       TEXT NOT NULL,
