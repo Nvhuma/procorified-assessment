@@ -48,7 +48,6 @@ jobs:
       DB_NAME: procurifieddb
       DB_USER: postgres
       DB_PASSWORD: postgres
-      DB_STRICT_CONFIG: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
