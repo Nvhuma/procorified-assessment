@@ -61,7 +61,7 @@ You should see `Seed complete.`
 ## Run tests
 
 ```bash
-# Unit + integration (requires seeded DB)
+# Unit + integration (requires running DB)
 node tests/index.test.js
 
 # Unit tests only (no DB required, macOS/Linux/Git Bash)
@@ -107,7 +107,8 @@ Expected output: all tests pass (counts can vary as tests evolve).
 
 All arithmetic is evaluated in mathjs BigNumber mode with 64-digit precision to
 avoid JavaScript floating-point drift (e.g. 0.1 + 0.2 returning 0.30000000000000004).
-Results are returned as decimal strings and stored in PostgreSQL as NUMERIC(18,6).
+Results are persisted in PostgreSQL as NUMERIC(18,6), and evaluateCalculation
+returns that persisted value as a decimal string so returned and stored values stay aligned.
 Callers must not coerce calculated values to JavaScript Number - pass them
 directly to the database or format them as strings for display.
 
