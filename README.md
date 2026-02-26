@@ -45,8 +45,6 @@ copy .env.example .env
 Open `.env` and set `DB_PASSWORD` to your local Postgres password. If your Postgres has no password, leave it empty. The other defaults should work for a standard local installation without changes.
 
 > `.env` is gitignored and will never be committed.
->
-> Optional hardening: set `DB_STRICT_CONFIG=true` (or `1` / `yes`) to fail fast when required DB env vars are missing.
 
 ### Seed the database
 
@@ -105,6 +103,14 @@ Expected output: all tests pass (counts can vary as tests evolve).
 
 > Production note: storing variable references as text inside the expression column works for this format, but a `calculation_variables` junction table would be a cleaner long-term design and would replace regex search with indexed joins.
 
+### Precision and numeric types
+
+All arithmetic is evaluated in mathjs BigNumber mode with 64-digit precision to
+avoid JavaScript floating-point drift (e.g. 0.1 + 0.2 returning 0.30000000000000004).
+Results are returned as decimal strings and stored in PostgreSQL as NUMERIC(18,6).
+Callers must not coerce calculated values to JavaScript Number - pass them
+directly to the database or format them as strings for display.
+
 ---
 
 ## Libraries
@@ -114,6 +120,7 @@ Expected output: all tests pass (counts can vary as tests evolve).
 | `pg` | PostgreSQL client with built-in connection pooling |
 | `mathjs` | Expression evaluator that avoids `eval()` |
 | `dotenv` | Loads credentials from `.env` into `process.env` |
+| `logger` (custom) | Structured JSON logging with LOG_LEVEL control - keeps test output clean and surfaces errors consistently |
 
 ---
 
@@ -140,13 +147,13 @@ GitHub Actions runs:
 .
 |-- src/
 |   |-- db.js               # Shared connection pool
-|   |-- logger.js           # Lightweight structured logging helpers
+|   |-- logger.js           # Structured JSON logging with LOG_LEVEL control
 |   |-- lineage.js          # Problem 1
 |   |-- calculations.js     # Problem 2
 |   `-- index.js
 |-- sql/
-|   |-- bootstrap.js        # Shared schema/seed routine
-|   `-- seed.js             # Table creation + sample data
+|   |-- bootstrap.js        # Shared schema definition and seed data (used by seed.js and tests)
+|   `-- seed.js             # CLI entry point - runs bootstrap and exits cleanly
 |-- tests/
 |   `-- index.test.js       # Unit + integration tests
 |-- .github/workflows/

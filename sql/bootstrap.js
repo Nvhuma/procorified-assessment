@@ -29,18 +29,8 @@ async function resetDatabase(client) {
     );
   `);
 
-  // Ensure existing tables are aligned to NUMERIC types if they were previously FLOAT.
-  await client.query(`
-    ALTER TABLE variables
-    ALTER COLUMN value TYPE NUMERIC(18, 6)
-    USING value::NUMERIC;
-  `);
-  await client.query(`
-    ALTER TABLE calculations
-    ALTER COLUMN calculated_value TYPE NUMERIC(18, 6)
-    USING calculated_value::NUMERIC;
-  `);
-
+  // Tables are recreated with correct types above. The TRUNCATE resets all
+  // data and sequences so every test run starts from a known deterministic state.
   await client.query('TRUNCATE singleresource, variables, calculations RESTART IDENTITY CASCADE;');
 
   await client.query(`

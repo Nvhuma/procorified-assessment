@@ -2,75 +2,34 @@ require('dotenv').config();
 
 /**
  * db.js
- * PostgreSQL connection pool.
- * Uses environment variables so credentials are never hardcoded.
+ * Shared PostgreSQL connection pool.
+ *
+ * Credentials are read from environment variables loaded by dotenv.
+ * Defaults are for local development only - production must supply
+ * explicit env vars.
+ *
+ * Why a shared pool: creating a new connection per request is expensive.
+ * The pool reuses existing connections and queues requests under load,
+ * which is the correct pattern for a Node.js backend.
  */
 
 const { Pool } = require('pg');
 const { logError } = require('./logger');
 
-function parseBooleanFlag(value) {
-  if (value === undefined || value === null) {
-    return false;
-  }
-
-  const normalized = String(value).trim().toLowerCase();
-  return normalized === 'true' || normalized === '1' || normalized === 'yes';
-}
-
-const strictConfig = parseBooleanFlag(process.env.DB_STRICT_CONFIG);
-
-if (strictConfig) {
-  const requiredNonEmpty = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER'];
-  const missingOrEmpty = requiredNonEmpty.filter((key) => {
-    const value = process.env[key];
-    return value === undefined || value.trim() === '';
-  });
-
-  if (missingOrEmpty.length > 0) {
-    throw new Error(
-      `DB_STRICT_CONFIG is enabled but missing/empty required env vars: ${missingOrEmpty.join(', ')}`
-    );
-  }
-
-  // DB_PASSWORD must be present but may be empty for local setups.
-  if (process.env.DB_PASSWORD === undefined) {
-    throw new Error('DB_STRICT_CONFIG is enabled but missing required env var: DB_PASSWORD');
-  }
-}
-
-const resolvedPortRaw = strictConfig
-  ? process.env.DB_PORT
-  : (process.env.DB_PORT || '5432');
-const resolvedPort = Number(resolvedPortRaw);
-if (!Number.isInteger(resolvedPort) || resolvedPort <= 0) {
-  throw new Error(`DB_PORT must be a positive integer, received: ${resolvedPortRaw}`);
-}
-
-const resolvedHost = strictConfig
-  ? process.env.DB_HOST
-  : (process.env.DB_HOST || 'localhost');
-const resolvedDatabase = strictConfig
-  ? process.env.DB_NAME
-  : (process.env.DB_NAME || 'procurifieddb');
-const resolvedUser = strictConfig
-  ? process.env.DB_USER
-  : (process.env.DB_USER || 'postgres');
-const resolvedPassword = strictConfig
-  ? process.env.DB_PASSWORD
-  : (process.env.DB_PASSWORD || '');
-
 const pool = new Pool({
-  host: resolvedHost,
-  port: resolvedPort,
-  database: resolvedDatabase,
-  user: resolvedUser,
-  password: resolvedPassword,
+  host: process.env.DB_HOST || 'localhost',
+  port: Number(process.env.DB_PORT) || 5432,
+  database: process.env.DB_NAME || 'procurifieddb',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || '',
 });
 
-// Single shared pool across modules; caller is responsible for pool.end() in CLI/tests.
+// Surface unexpected pool-level errors (e.g. dropped connections) through
+// the structured logger rather than letting them crash the process silently.
 pool.on('error', (err) => {
   logError('db.pool.error', { error: err.message });
 });
 
+// Single shared pool across all modules.
+// Caller is responsible for calling pool.end() in CLI scripts and tests.
 module.exports = pool;

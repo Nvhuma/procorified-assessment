@@ -99,8 +99,14 @@ function buildEvaluableExpression(expression, valueById) {
 }
 
 /**
- * Allow only arithmetic expressions built from numbers, parentheses,
- * whitespace, and + - * / operators.
+ * Guards against expressions containing unsupported tokens before they
+ * reach mathjs. Although mathjs is safer than eval(), it still accepts
+ * function calls such as sqrt() and import() that are outside the intended
+ * scope of this feature. This allowlist ensures only plain arithmetic
+ * reaches the evaluator, which matters when expression values come from
+ * a database field that could be tampered with.
+ *
+ * Only numbers, parentheses, whitespace, and + - * / are permitted.
  *
  * @param {string} expression
  * @returns {boolean}
@@ -146,8 +152,13 @@ function isAllowedArithmeticExpression(expression) {
 /**
  * Evaluate a plain arithmetic expression using mathjs BigNumber mode.
  *
+ * Returns a string rather than a number because mathjs BigNumber results
+ * cannot be safely represented as JS floats without precision loss.
+ * Callers should treat the return value as a decimal string and pass it
+ * directly to PostgreSQL as NUMERIC - do not coerce it to Number first.
+ *
  * @param {string} expression
- * @returns {string}
+ * @returns {string} Decimal string representation of the result.
  */
 function evaluateExpression(expression) {
   if (!isAllowedArithmeticExpression(expression)) {
@@ -239,56 +250,15 @@ async function evaluateCalculation(calculationId, options = {}) {
 }
 
 /**
- * Re-evaluate all calculations that reference the provided variable ID.
- *
- * Behavior:
- * - returns [] when no matching calculations are found
- * - when options.atomic=true, wraps updates in a single transaction
+ * Wraps all recalculation updates in a single database transaction.
+ * Sequential execution is intentional here - concurrent writes inside one
+ * transaction can cause deadlocks when rows lock each other.
  *
  * @param {number} variableId
- * @param {{ atomic?: boolean }} [options]
+ * @param {string} dependencyRegex
  * @returns {Promise<Array<{ calculationId: number, calculatedValue: string }>>}
  */
-async function recalculate(variableId, options = {}) {
-  if (!Number.isInteger(variableId) || variableId <= 0) {
-    throw new TypeError(`variableId must be a positive integer, received: ${variableId}`);
-  }
-
-  const atomic = options.atomic === true;
-
-  // Regex is whitespace-tolerant and requires a valid JSON field terminator
-  // after the numeric id ("," or "}"), which avoids false positives such as
-  // "id": 10 or "id": 1e2 when searching for id=1.
-  const dependencyRegex = `"id"[[:space:]]*:[[:space:]]*${variableId}[[:space:]]*[,}]`;
-
-  if (!atomic) {
-    try {
-      const { rows: affectedCalculations } = await pool.query(
-        'SELECT id FROM calculations WHERE expression ~ $1',
-        [dependencyRegex]
-      );
-
-      if (affectedCalculations.length === 0) {
-        return [];
-      }
-
-      logInfo('calculation.recalculate.start', {
-        variableId,
-        atomic,
-        affectedCount: affectedCalculations.length,
-      });
-
-      return Promise.all(affectedCalculations.map((row) => evaluateCalculation(row.id)));
-    } catch (err) {
-      logError('calculation.recalculate.failed', {
-        variableId,
-        atomic,
-        error: err.message,
-      });
-      throw err;
-    }
-  }
-
+async function _recalculateAtomic(variableId, dependencyRegex) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -305,7 +275,7 @@ async function recalculate(variableId, options = {}) {
 
     logInfo('calculation.recalculate.start', {
       variableId,
-      atomic,
+      atomic: true,
       affectedCount: affectedCalculations.length,
     });
 
@@ -320,12 +290,67 @@ async function recalculate(variableId, options = {}) {
     await client.query('ROLLBACK');
     logError('calculation.recalculate.failed', {
       variableId,
-      atomic,
+      atomic: true,
       error: err.message,
     });
     throw err;
   } finally {
     client.release();
+  }
+}
+
+/**
+ * Re-evaluate all calculations that reference the provided variable ID.
+ *
+ * Behavior:
+ * - returns [] when no matching calculations are found
+ * - when options.atomic=true, wraps updates in a single transaction
+ *
+ * @param {number} variableId
+ * @param {{ atomic?: boolean }} [options]
+ * @returns {Promise<Array<{ calculationId: number, calculatedValue: string }>>}
+ */
+async function recalculate(variableId, options = {}) {
+  if (!Number.isInteger(variableId) || variableId <= 0) {
+    throw new TypeError(`variableId must be a positive integer, received: ${variableId}`);
+  }
+
+  // Regex requires a valid JSON field terminator (comma or closing brace)
+  // after the numeric id, which prevents false positives such as id:10
+  // or id:1e2 matching a search for id:1.
+  const dependencyRegex = `"id"[[:space:]]*:[[:space:]]*${variableId}[[:space:]]*[,}]`;
+
+  if (options.atomic === true) {
+    return _recalculateAtomic(variableId, dependencyRegex);
+  }
+
+  try {
+    const { rows: affectedCalculations } = await pool.query(
+      'SELECT id FROM calculations WHERE expression ~ $1',
+      [dependencyRegex]
+    );
+
+    if (affectedCalculations.length === 0) {
+      return [];
+    }
+
+    logInfo('calculation.recalculate.start', {
+      variableId,
+      atomic: false,
+      affectedCount: affectedCalculations.length,
+    });
+
+    // Each calculation writes to its own row with no cross-row dependencies,
+    // so concurrent evaluation is safe here. If calculations ever referenced
+    // each other's output, a topological sort would be required before this step.
+    return Promise.all(affectedCalculations.map((row) => evaluateCalculation(row.id)));
+  } catch (err) {
+    logError('calculation.recalculate.failed', {
+      variableId,
+      atomic: false,
+      error: err.message,
+    });
+    throw err;
   }
 }
 

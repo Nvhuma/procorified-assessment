@@ -8,8 +8,15 @@
 const pool = require('./db');
 
 /**
- * @param {number} id
- * @returns {Promise<number[]>}
+ * Returns the complete ancestor chain for a given resource, ordered
+ * from root (oldest ancestor) to the resource's immediate parent.
+ * Returns an empty array if the resource has no parent.
+ *
+ * @param {number} id - The resource ID to query. Must exist in the database.
+ * @returns {Promise<number[]>} Ancestor IDs ordered from root to immediate parent.
+ * @throws {TypeError} If id is not a positive integer.
+ * @throws {Error}     If no resource with the given id exists.
+ * @throws {Error}     If a cycle is detected in the lineage data.
  */
 async function getLineage(id) {
   if (!Number.isInteger(id) || id <= 0) {
