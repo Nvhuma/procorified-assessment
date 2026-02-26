@@ -61,7 +61,7 @@ You should see `Seed complete.`
 ## Run tests
 
 ```bash
-# Unit + integration (requires running DB)
+# Unit + integration (requires a running PostgreSQL instance - tests seed themselves)
 node tests/index.test.js
 
 # Unit tests only (no DB required, macOS/Linux/Git Bash)
