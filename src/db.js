@@ -16,9 +16,15 @@ require('dotenv').config();
 const { Pool } = require('pg');
 const { logError } = require('./logger');
 
+const rawPort = process.env.DB_PORT;
+const resolvedPort = rawPort ? Number(rawPort) : 5432;
+if (!Number.isInteger(resolvedPort) || resolvedPort <= 0) {
+  throw new Error(`DB_PORT must be a positive integer, received: "${rawPort}"`);
+}
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT) || 5432,
+  port: resolvedPort,
   database: process.env.DB_NAME || 'procurifieddb',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || '',
