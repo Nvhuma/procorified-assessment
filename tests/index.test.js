@@ -41,6 +41,7 @@ function assertEqual(actual, expected, label = '') {
 }
 
 function normalizeNumericString(value) {
+  // Normalize DB NUMERIC text for stable string equality assertions in tests.
   const raw = String(value).trim();
   if (!/^-?\d+(?:\.\d+)?$/.test(raw)) {
     throw new Error(`Expected a decimal string, got "${raw}"`);
@@ -222,6 +223,7 @@ async function runIntegrationTests() {
     );
     const bId = bInsert.rows[0].id;
 
+    // Create A->B->A to verify recursive lineage detects and rejects cycles.
     await pool.query(`UPDATE singleresource SET "parentId" = $1 WHERE id = $2`, [bId, aId]);
 
     await assertRejects(() => getLineage(aId), 'Cycle detected');
@@ -232,6 +234,10 @@ async function runIntegrationTests() {
   await assertAsync('evaluates seeded calculation 1', async () => {
     const { calculatedValue } = await evaluateCalculation(1);
     assertEqual(calculatedValue, '22.5');
+  });
+
+  await assertAsync('throws when calculation id does not exist', async () => {
+    await assertRejects(() => evaluateCalculation(999999), 'not found');
   });
 
   await assertAsync('evaluates expression with multiple JSON snippets and persists', async () => {
