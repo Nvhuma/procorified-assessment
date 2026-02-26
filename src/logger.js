@@ -49,8 +49,12 @@ function logInfo(event, metadata = {}) {
   emit('info', event, metadata);
 }
 
+function logDebug(event, metadata = {}) {
+  emit('debug', event, metadata);
+}
+
 function logError(event, metadata = {}) {
   emit('error', event, metadata);
 }
 
-module.exports = { logInfo, logError };
+module.exports = { logDebug, logInfo, logError };
